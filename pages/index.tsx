@@ -57,6 +57,7 @@ const Home: NextPage = () => {
         const toBeUpdatedLocations = Array.from(locations);
         const [removed] = toBeUpdatedLocations.splice(result.source.index, 1);
         toBeUpdatedLocations.splice(result.destination.index, 0, removed);
+        toBeUpdatedLocations.forEach((e, index) => e.priority = index);
         setLocations(toBeUpdatedLocations);
     }
 
@@ -109,7 +110,7 @@ const Home: NextPage = () => {
     }
 
     const onChangeOrder = (event: ChangeEvent<HTMLInputElement>, product: string) => {
-        const toBeUpdatedOrderDetails: { listing: string, variant: string, quantity: number }[] = JSON.parse(JSON.stringify(currentEditingOrder));
+        let toBeUpdatedOrderDetails: { listing: string, variant: string, quantity: number }[] = JSON.parse(JSON.stringify(currentEditingOrder));
         const existingOrderItemIndex = toBeUpdatedOrderDetails.findIndex(e => e.listing == product);
         let toBeUpdatedValue: any = event.target.value == '' ? '0' : event.target.value;
         toBeUpdatedValue = toBeUpdatedValue == '0' ? '0' : parseInt(toBeUpdatedValue.replace(/^0+/, ''));
@@ -118,6 +119,7 @@ const Home: NextPage = () => {
         } else {
             toBeUpdatedOrderDetails.push({ listing: product, variant: product, quantity: toBeUpdatedValue })
         }
+        toBeUpdatedOrderDetails = toBeUpdatedOrderDetails.filter(e => e.quantity > 0);
         setCurrentEditingOrder(toBeUpdatedOrderDetails);
     }
 
