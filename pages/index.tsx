@@ -1,6 +1,6 @@
 import { Button, Flex, Icon, Input, Modal, ModalBody, ModalCloseButton, ModalFooter, ModalHeader, ModalOverlay, ModalContent, Table, TableContainer, Tbody, Td, Text, Th, Thead, Tr, useDisclosure, CloseButton, IconButton } from '@chakra-ui/react'
 import type { NextPage } from 'next'
-import { ChangeEvent, MouseEvent, useState } from 'react';
+import { ChangeEvent, MouseEvent, useEffect, useState } from 'react';
 import { Draggable, DropResult, Droppable } from 'react-beautiful-dnd';
 import dynamic from 'next/dynamic';
 import { DeleteIcon } from '@chakra-ui/icons';
@@ -12,17 +12,14 @@ const DragDropContext = dynamic({
     ssr: false,
 });
 
-const Home: NextPage = () => {
-    const [locations, setLocations] = useState([
+const INITIAL_DATA = {
+    locations: [
         { name: 'Kochi warehouse', _id: 'kochi', priority: 1, isDefault: false },
         { name: 'Ariyalur warehouse', _id: 'ariyalur', priority: 2, isDefault: false },
         { name: 'Trichy warehouse', _id: 'trichy', priority: 3, isDefault: false },
         { name: 'Chennai warehouse', _id: 'chennai', priority: 4, isDefault: true },
-    ]);
-    const [location, setLocation] = useState('');
-    const [product, setProduct] = useState('');
-    const [products, setProducts] = useState(['iphone', 'shirt', 'bag']);
-    const [inventories, setInventories] = useState([
+    ],
+    inventories: [
         { listing: 'iphone', variant: 'iphone', location: 'kochi', commited: 0, quantity: 4 },
         { listing: 'iphone', variant: 'iphone', location: 'ariyalur', commited: 0, quantity: 15 },
         { listing: 'iphone', variant: 'iphone', location: 'trichy', commited: 0, quantity: 5 },
@@ -35,7 +32,16 @@ const Home: NextPage = () => {
         { listing: 'bag', variant: 'bag', location: 'ariyalur', commited: 0, quantity: 5 },
         { listing: 'bag', variant: 'bag', location: 'trichy', commited: 0, quantity: 5 },
         { listing: 'bag', variant: 'bag', location: 'chennai', commited: 0, quantity: 5 },
-    ]);
+    ],
+    products: ['iphone', 'shirt', 'bag'],
+}
+
+const Home: NextPage = () => {
+    const [locations, setLocations] = useState(INITIAL_DATA.locations);
+    const [location, setLocation] = useState('');
+    const [product, setProduct] = useState('');
+    const [products, setProducts] = useState(INITIAL_DATA.products);
+    const [inventories, setInventories] = useState(INITIAL_DATA.inventories);
     const [order, setOrder] = useState([
         { listing: 'iphone', variant: 'iphone', quantity: 5 },
         { listing: 'shirt', variant: 'shirt', quantity: 3 }
@@ -51,6 +57,36 @@ const Home: NextPage = () => {
         ]  }
     ])
     const { isOpen, onOpen, onClose } = useDisclosure()
+
+    useEffect(() => {
+        let localLocations: any = localStorage.getItem('locations');
+        let localProducts: any =  localStorage.getItem('products');
+        let localInventories: any = localStorage.getItem('inventories');
+        if(localLocations && localLocations != '') {
+            try { localLocations = JSON.parse(localLocations); if(localLocations?.length > 0) setLocations(localLocations); } catch (e) {}
+        }
+        if(localProducts && localProducts != '') {
+            try { localProducts = JSON.parse(localProducts); if(localProducts?.length > 0) setProducts(localProducts); } catch (e) {}
+        }
+        if(localInventories && localInventories != '') {
+            try { localInventories = JSON.parse(localInventories); if(localInventories?.length > 0) setInventories(localInventories); } catch (e) {}
+        }
+    }, [])
+
+    useEffect(() => {
+        if(JSON.stringify(locations) != JSON.stringify(INITIAL_DATA.locations)) localStorage.setItem('locations', JSON.stringify(locations));
+        if(JSON.stringify(products) != JSON.stringify(INITIAL_DATA.products)) localStorage.setItem('products', JSON.stringify(products));
+        if(JSON.stringify(inventories) != JSON.stringify(INITIAL_DATA.inventories)) localStorage.setItem('inventories', JSON.stringify(inventories));
+    }, [locations, products, inventories])
+
+    const onClickDefaultData = () => {
+        setLocations(INITIAL_DATA.locations);
+        setProducts(INITIAL_DATA.products);
+        setInventories(INITIAL_DATA.inventories);
+        localStorage.setItem('locations', JSON.stringify(INITIAL_DATA.locations));
+        localStorage.setItem('products', JSON.stringify(INITIAL_DATA.products));
+        localStorage.setItem('inventories', JSON.stringify(INITIAL_DATA.inventories));
+    }
     
     const onDragEnd = (result: DropResult) => {
         if (!result.destination) return;
@@ -59,6 +95,34 @@ const Home: NextPage = () => {
         toBeUpdatedLocations.splice(result.destination.index, 0, removed);
         toBeUpdatedLocations.forEach((e, index) => e.priority = index);
         setLocations(toBeUpdatedLocations);
+    }
+
+    const onClickLocationExport = () => {
+        prompt("Copy to clipboard: Ctrl+C, Enter", JSON.stringify(locations))
+    }
+
+    const onClickLocationImport = () => {
+        const importedData = prompt('Paste the exported data: Ctrl+V, Enter');
+        if(importedData == '' || importedData == null) return ;
+        try {
+            const parsedData = JSON.parse(importedData);
+            setLocations(parsedData)
+        } catch(e) {}
+    }
+
+    const onClickInventoryExport = () => {
+        prompt("Copy to clipboard: Ctrl+C, Enter", JSON.stringify({ products, inventories }));
+    }
+
+    const onClickInventoryImport = () => {
+        const importedData = prompt('Paste the exported data: Ctrl+V, Enter');
+        if(importedData == '' || importedData == null) return ;
+        try {
+            const parsedData = JSON.parse(importedData);
+            parsedData.inventories = parsedData.inventories.filter((e: any) => locations.findIndex(location => location._id == e.location) > -1)
+            setProducts(parsedData.products)
+            setInventories(parsedData.inventories);
+        } catch(e) {}
     }
 
     const onClickSetAsDefault = (locationId: string) => {
@@ -87,7 +151,7 @@ const Home: NextPage = () => {
         event.preventDefault();
         if(location == '' || locations.findIndex(e => e._id == location.toLowerCase()) > -1) return ;
         setLocation('');
-        setLocations(prev => [...prev, { _id: location.toLowerCase(), name: location, isDefault: false, priority: prev.length }]);
+        setLocations(prev => [...prev.map((e, index) => { e.priority = index; return e }), { _id: location.toLowerCase(), name: location, isDefault: false, priority: prev.length }]);
     }
 
     const onClickAddProduct = (event: MouseEvent<HTMLButtonElement>) => {
@@ -98,7 +162,7 @@ const Home: NextPage = () => {
     }
 
     const onClickDeleteLocation = (locationId: string) => {
-        setLocations(prev => (prev.filter(e => e._id != locationId)));
+        setLocations(prev => (prev.filter(e => e._id != locationId).map((e, index) => { e.priority =  index; return e })));
         setInventories(prev => (prev.filter(e => e.location != locationId)));
     }
 
@@ -247,7 +311,15 @@ const Home: NextPage = () => {
                 </ModalContent>
             </Modal>
 
+            <Flex w = '100%' p = '20px' gridGap = '20px' bg = 'gray.400'>
+                <Button onClick = {onClickDefaultData} w = '100%'>Import Default Data</Button>
+            </Flex>
+
             <Flex w = '100%' p = '20px' gridGap = '20px' bg = 'gray.400' direction={'column'}>
+                <Flex gridGap = '20px' w = '100%'>
+                    <Button onClick = {onClickLocationExport} w = '100%'>Export</Button>
+                    <Button onClick = {onClickLocationImport} w = '100%'>Import</Button>
+                </Flex>
                 <form>
                     <Flex w = '100%' gridGap = '20px'>
                         <Input placeholder = 'Enter location name' bg = 'white' value  = {location} onChange={e => setLocation(e.target.value)} />
@@ -294,6 +366,10 @@ const Home: NextPage = () => {
             </Flex>
             
             <Flex w = '100%' p = '20px' gridGap = '20px' bg = 'gray.400' direction={'column'}>
+                <Flex gridGap = '20px' w = '100%'>
+                    <Button onClick = {onClickInventoryExport} w = '100%'>Export</Button>
+                    <Button onClick = {onClickInventoryImport} w = '100%'>Import</Button>
+                </Flex>
                 <form>
                     <Flex w = '100%' gridGap = '20px'>
                         <Input placeholder = 'Enter product name' bg = 'white' value  = {product} onChange={e => setProduct(e.target.value)} />
