@@ -1,4 +1,4 @@
-import { Button, Flex, Icon, Input, Modal, ModalBody, ModalCloseButton, ModalFooter, ModalHeader, ModalOverlay, ModalContent, Table, TableContainer, Tbody, Td, Text, Th, Thead, Tr, useDisclosure, CloseButton, IconButton } from '@chakra-ui/react'
+import { Button, Flex, Icon, Input, Modal, ModalBody, ModalCloseButton, ModalFooter, ModalHeader, ModalOverlay, ModalContent, Table, TableContainer, Tbody, Td, Text, Th, Thead, Tr, useDisclosure, CloseButton, IconButton, useToast } from '@chakra-ui/react'
 import type { NextPage } from 'next'
 import { ChangeEvent, MouseEvent, useEffect, useState } from 'react';
 import { Draggable, DropResult, Droppable } from 'react-beautiful-dnd';
@@ -50,13 +50,20 @@ const Home: NextPage = () => {
         { listing: 'iphone', variant: 'iphone', quantity: 5 },
         { listing: 'shirt', variant: 'shirt', quantity: 3 }
     ]);
-    const [locationAssignedItems, setLocationAssignedItems] = useState([
+    const [locationAssignedItemsByAlgorith1, setLocationAssignedItemsByAlgorithm1] = useState([
         { location: 'chennai' as string | null, items: [ 
             { listing: 'iphone', variant: 'iphone', quantity: 5 }, 
             { listing: 'shirt', variant: 'shirt', quantity: 3 } 
         ]  }
     ])
-    const { isOpen, onOpen, onClose } = useDisclosure()
+    const [locationAssignedItemsByAlgorith2, setLocationAssignedItemsByAlgorithm2] = useState([
+        { location: 'chennai' as string | null, items: [ 
+            { listing: 'iphone', variant: 'iphone', quantity: 5 }, 
+            { listing: 'shirt', variant: 'shirt', quantity: 3 } 
+        ]  }
+    ])
+    const { isOpen, onOpen, onClose } = useDisclosure();
+    const toast = useToast();
 
     useEffect(() => {
         let localLocations: any = localStorage.getItem('locations');
@@ -114,7 +121,13 @@ const Home: NextPage = () => {
     }
 
     const onClickInventoryExport = () => {
-        prompt("Copy to clipboard: Ctrl+C, Enter", JSON.stringify({ products, inventories }));
+        window.navigator.clipboard.writeText(JSON.stringify({ products, inventories }));
+        toast({
+            status: 'success',
+            title: 'Copied to clipboard',
+            isClosable: true,
+            position: 'top'
+        })
     }
 
     const onClickInventoryImport = () => {
@@ -211,15 +224,13 @@ const Home: NextPage = () => {
         setCurrentEditingOrder(toBeUpdatedOrderDetails);
     }
 
-    const onClickSaveOrder = () => {
-        setOrder(currentEditingOrder);
+    const getAlgorithm1Result = () => {
         type AssignedItem = {
             location: string | null,
             listing: string,
             variant: string,
             quantity: number
         }
-
         const assignedItems: AssignedItem[] = [];
 
         for (const orderItem of currentEditingOrder) {
@@ -293,7 +304,77 @@ const Home: NextPage = () => {
         
         }
 
-        const assignedItemsGroupedByLocation = assignedItems.reduce((data, item) => {
+        return assignedItems;
+    }
+
+    const getAlgorithm2Result = () => {
+        type AssignedItem = {
+            location: string | null,
+            listing: string,
+            variant: string,
+            quantity: number
+        }
+        const assignedItems: AssignedItem[] = [];
+        const sortedLocationsByPriority = [...locations].sort((a, b) => a.priority < b.priority ? 1 : -1).sort((a, b) => a.isDefault ? 1 : -1);
+
+        for (const location of sortedLocationsByPriority) {
+            const unAssignedItems = currentEditingOrder.filter(item => assignedItems.findIndex(e => e.listing == item.listing && e.variant == item.variant) < 0)
+            for (const orderItem of unAssignedItems) {
+                const itemInventoryForCurrentLocation = inventories.find(e => e.listing == orderItem.listing && e.variant == orderItem.variant && e.location == location._id);
+                if(itemInventoryForCurrentLocation == null) continue;
+                const availableQuantity = itemInventoryForCurrentLocation.quantity - itemInventoryForCurrentLocation.commited;
+                if(availableQuantity >= orderItem.quantity) {
+                    assignedItems.push({ ...orderItem, location: location._id });
+
+                    for (const [index, assingedItem] of assignedItems.slice(0, -1).entries()) {
+                        const isMultipleItemsAssignedWithTheSameCurrentItemLocation = assignedItems.filter(e => e.location == assingedItem.location).length > 1;
+                        const isAssignedItemIsSplittedByQuantity = assignedItems.filter(e => e.listing == assingedItem.listing && e.variant == assingedItem.variant).length > 1;
+                        const assignedItemInventoryForCurrentLocation = inventories.find(e => e.location == location._id && e.listing == assingedItem.listing && e.variant == assingedItem.variant);
+                        const availableQuantity = (assignedItemInventoryForCurrentLocation?.quantity ?? 0) - (assignedItemInventoryForCurrentLocation?.commited ?? 0)
+                        if(!isMultipleItemsAssignedWithTheSameCurrentItemLocation && !isAssignedItemIsSplittedByQuantity && availableQuantity >= assingedItem.quantity) {
+                            assignedItems[index].location = location._id;
+                        }
+                    }
+                }
+            }
+        }
+
+        const unAssignedItems = currentEditingOrder.filter(item => assignedItems.findIndex(e => e.listing == item.listing && e.variant == item.variant) < 0)
+        for (const orderItem of unAssignedItems) {
+            const sortedListingInventoriesByLocationQuantityAndPriority = [...inventories].filter(inventory => inventory.listing == orderItem.listing && inventory.variant == orderItem.variant).sort((a, b) => {
+                const aPriority = sortedLocationsByPriority.find(loc => loc._id === a.location)?.priority ?? 0;
+                const bPriority = sortedLocationsByPriority.find(loc => loc._id === b.location)?.priority ?? 0;
+                const aAvailableQuantity = a.quantity - a.commited;
+                const bAvailableQuantity = b.quantity - b.commited;
+                if(aAvailableQuantity == bAvailableQuantity) {
+                    return aPriority - bPriority;
+                }
+                return bAvailableQuantity - aAvailableQuantity;
+            });
+            let notFulfiledItemQuantity = orderItem.quantity;
+            for (const inventory of sortedListingInventoriesByLocationQuantityAndPriority) {
+                const availableQuantity = inventory.quantity - inventory.commited;
+                const assignableQuantity = availableQuantity > notFulfiledItemQuantity ? notFulfiledItemQuantity : availableQuantity;
+                if(notFulfiledItemQuantity < 1) break;
+                if(availableQuantity > 0 && notFulfiledItemQuantity > 0) {
+                    assignedItems.push({ ...orderItem, quantity: assignableQuantity, location: inventory.location });
+                    notFulfiledItemQuantity -= assignableQuantity;
+                }
+            }
+            if(notFulfiledItemQuantity > 0) {
+                assignedItems.push({ ...orderItem, quantity: notFulfiledItemQuantity, location: null })
+            }
+        }
+
+        return assignedItems;
+    }
+
+    const onClickSaveOrder = () => {
+        setOrder(currentEditingOrder);
+        const algo1Result = getAlgorithm1Result();
+        const algo2Result = getAlgorithm2Result();
+
+        const algo1ResultGroupedByLocation = algo1Result.reduce((data, item) => {
             const existItemWithSameLocationIndex = data.findIndex(e => e.location == item.location);
             if(existItemWithSameLocationIndex > -1) {
                 data[existItemWithSameLocationIndex].items.push({ listing: item.listing, variant: item.variant, quantity: item.quantity })
@@ -303,7 +384,18 @@ const Home: NextPage = () => {
             return data;
         }, [] as { location: string | null, items: { listing: string, variant: string, quantity: number }[] } []);
 
-        setLocationAssignedItems(assignedItemsGroupedByLocation);
+        const algo2ResultGroupedByLocation = algo2Result.reduce((data, item) => {
+            const existItemWithSameLocationIndex = data.findIndex(e => e.location == item.location);
+            if(existItemWithSameLocationIndex > -1) {
+                data[existItemWithSameLocationIndex].items.push({ listing: item.listing, variant: item.variant, quantity: item.quantity })
+            } else {
+                data.push({ location: item.location, items: [ { listing: item.listing, variant: item.variant, quantity: item.quantity } ] });
+            }
+            return data;
+        }, [] as { location: string | null, items: { listing: string, variant: string, quantity: number }[] } []);
+
+        setLocationAssignedItemsByAlgorithm1(algo1ResultGroupedByLocation);
+        setLocationAssignedItemsByAlgorithm2(algo2ResultGroupedByLocation);
         onClose();
     }
 
@@ -439,16 +531,34 @@ const Home: NextPage = () => {
                 <Button onClick={() => { setCurrentEditingOrder(order); onOpen(); }} mt = '10px' bg = 'green.200' _hover={{bg: 'green.400', color: 'white'}}>{order.length > 0 ? 'Update Order' : 'Create Order'}</Button>
             </Flex>
 
-            <Flex bg = 'gray.400' w = '100%' p = '20px' gridGap={'20px'} flexWrap = 'wrap'>
-                {locationAssignedItems.map((groupedItem, groupedItemIndex) => {
-                    const location = locations.find(e => e._id == groupedItem.location)?.name ?? groupedItem.location
-                    return <Flex key = {groupedItem.location ?? '' + groupedItemIndex} p = '20px' minW = '250px' gridGap = '10px' flexGrow = {1} bg = 'white' direction = 'column'>
-                        <Text as = 'b' color = {location ? 'auto' : 'red'}>{location ?? 'Not Assigned'}</Text>
-                        {groupedItem.items.map((item, index) => {
-                            return <Text key = {item.listing + index}>{item.listing} - {item.quantity}</Text>
-                        })}
-                    </Flex>
-                })}
+            <Flex bg = 'gray.400' w = '100%' p = '20px' gridGap={'20px'} direction = 'column'>
+                <Flex p = '10px' bg = 'white' justifyContent = 'center' as = 'b'>Algorithm type 1</Flex>
+                    <Flex w = '100%' gridGap={'20px'} flexWrap = 'wrap'>
+                    {locationAssignedItemsByAlgorith1.map((groupedItem, groupedItemIndex) => {
+                        const location = locations.find(e => e._id == groupedItem.location)?.name ?? groupedItem.location
+                        return <Flex key = {groupedItem.location ?? '' + groupedItemIndex} p = '20px' minW = '250px' gridGap = '10px' flexGrow = {1} bg = 'white' direction = 'column'>
+                            <Text as = 'b' color = {location ? 'auto' : 'red'}>{location ?? 'Not Assigned'}</Text>
+                            {groupedItem.items.map((item, index) => {
+                                return <Text key = {item.listing + index}>{item.listing} - {item.quantity}</Text>
+                            })}
+                        </Flex>
+                    })}
+                </Flex>
+            </Flex>
+
+            <Flex bg = 'gray.400' w = '100%' p = '20px' gridGap={'20px'} direction = 'column'>
+                <Flex p = '10px' bg = 'white' justifyContent = 'center' as = 'b'>Algorithm type 2</Flex>
+                <Flex w = '100%' gridGap={'20px'} flexWrap = 'wrap'>     
+                    {locationAssignedItemsByAlgorith2.map((groupedItem, groupedItemIndex) => {
+                        const location = locations.find(e => e._id == groupedItem.location)?.name ?? groupedItem.location
+                        return <Flex key = {groupedItem.location ?? '' + groupedItemIndex} p = '20px' minW = '250px' gridGap = '10px' flexGrow = {1} bg = 'white' direction = 'column'>
+                            <Text as = 'b' color = {location ? 'auto' : 'red'}>{location ?? 'Not Assigned'}</Text>
+                            {groupedItem.items.map((item, index) => {
+                                return <Text key = {item.listing + index}>{item.listing} - {item.quantity}</Text>
+                            })}
+                        </Flex>
+                    })}
+                </Flex>
             </Flex>
             
         </Flex>
