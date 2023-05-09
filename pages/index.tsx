@@ -73,11 +73,11 @@ const Home: NextPage = () => {
         }
     }, [])
 
-    useEffect(() => {
-        if(JSON.stringify(locations) != JSON.stringify(INITIAL_DATA.locations)) localStorage.setItem('locations', JSON.stringify(locations));
-        if(JSON.stringify(products) != JSON.stringify(INITIAL_DATA.products)) localStorage.setItem('products', JSON.stringify(products));
-        if(JSON.stringify(inventories) != JSON.stringify(INITIAL_DATA.inventories)) localStorage.setItem('inventories', JSON.stringify(inventories));
-    }, [locations, products, inventories])
+    const updateLocalStorageData = (toBeUpdatedLocations: any, toBeUpdatedProducts: any, toBeUpdatedInventories: any) => {
+        localStorage.setItem('locations', JSON.stringify(toBeUpdatedLocations));
+        localStorage.setItem('products', JSON.stringify(toBeUpdatedProducts));
+        localStorage.setItem('inventories', JSON.stringify(toBeUpdatedInventories));
+    }
 
     const onClickDefaultData = () => {
         setLocations(INITIAL_DATA.locations);
@@ -95,6 +95,7 @@ const Home: NextPage = () => {
         toBeUpdatedLocations.splice(result.destination.index, 0, removed);
         toBeUpdatedLocations.forEach((e, index) => e.priority = index);
         setLocations(toBeUpdatedLocations);
+        updateLocalStorageData(toBeUpdatedLocations, products, inventories)
     }
 
     const onClickLocationExport = () => {
@@ -106,7 +107,9 @@ const Home: NextPage = () => {
         if(importedData == '' || importedData == null) return ;
         try {
             const parsedData = JSON.parse(importedData);
+            if(parsedData?.[0] == null || parsedData?.[0]?.hasOwnProperty('name') == false || parsedData?.[0]?.hasOwnProperty('priority') == false) return ;
             setLocations(parsedData)
+            updateLocalStorageData(parsedData, products, inventories);
         } catch(e) {}
     }
 
@@ -119,9 +122,12 @@ const Home: NextPage = () => {
         if(importedData == '' || importedData == null) return ;
         try {
             const parsedData = JSON.parse(importedData);
-            parsedData.inventories = parsedData.inventories.filter((e: any) => locations.findIndex(location => location._id == e.location) > -1)
-            setProducts(parsedData.products)
-            setInventories(parsedData.inventories);
+            if(parsedData?.hasOwnProperty('products') && parsedData?.hasOwnProperty('inventories')) {
+                parsedData.inventories = parsedData.inventories.filter((e: any) => locations.findIndex(location => location._id == e.location) > -1)
+                setProducts(parsedData.products)
+                setInventories(parsedData.inventories);
+                updateLocalStorageData(locations, parsedData.products, parsedData.inventories);
+            }
         } catch(e) {}
     }
 
@@ -132,6 +138,7 @@ const Home: NextPage = () => {
             if(e._id == locationId) e.isDefault = true;
         })
         setLocations(toBeUpdatedLocations);
+        updateLocalStorageData(toBeUpdatedLocations, products, inventories)
     }
 
     const onChangeInventory = (event: ChangeEvent<HTMLInputElement>, locationId: string, product: string) => {
@@ -145,32 +152,49 @@ const Home: NextPage = () => {
             toBeUpdatedInventories.push({ listing: product, variant: product, location: locationId, quantity: toBeUpdatedValue, commited: 0 });
         }
         setInventories(toBeUpdatedInventories);
+        updateLocalStorageData(locations, products, toBeUpdatedInventories)
     }
 
     const onClickAddLocation = (event: MouseEvent<HTMLButtonElement>) => {
         event.preventDefault();
         if(location == '' || locations.findIndex(e => e._id == location.toLowerCase()) > -1) return ;
         setLocation('');
-        setLocations(prev => [...prev.map((e, index) => { e.priority = index; return e }), { _id: location.toLowerCase(), name: location, isDefault: false, priority: prev.length }]);
+        const toBeUpdatedLocations = [ ...locations, { _id: location.toLowerCase(), name: location, isDefault: false, priority: locations.length } ];
+        setLocations(toBeUpdatedLocations);
+        updateLocalStorageData(toBeUpdatedLocations, products, inventories);
     }
 
     const onClickAddProduct = (event: MouseEvent<HTMLButtonElement>) => {
         event.preventDefault();
         if(product == '' || products.includes(product)) return ;
         setProduct('');
-        setProducts(prev => [...prev, product]);
+        const toBeUpdatedProducts = [ ...products, product ];
+        setProducts(toBeUpdatedProducts);
+        updateLocalStorageData(locations, toBeUpdatedProducts, inventories);
     }
 
     const onClickDeleteLocation = (locationId: string) => {
-        setLocations(prev => (prev.filter(e => e._id != locationId).map((e, index) => { e.priority =  index; return e })));
-        setInventories(prev => (prev.filter(e => e.location != locationId)));
+        let toBeUpdatedLocations = Array.from(locations);
+        let toBeUpdatedInventories = Array.from(inventories);
+        toBeUpdatedLocations = toBeUpdatedLocations.filter(e => e._id != locationId).map((e, index) => { e.priority =  index; return e });
+        toBeUpdatedInventories = toBeUpdatedInventories.filter(e => e.location != locationId);
+        setLocations(toBeUpdatedLocations);
+        setInventories(toBeUpdatedInventories);
+        updateLocalStorageData(toBeUpdatedLocations, products, toBeUpdatedInventories);
     }
 
     const onClickDeleteProduct = (productId: string) => {
-        setProducts(prev => (prev.filter(e => e != productId)));
-        setInventories(prev => (prev.filter(e => e.listing != productId)));
+        let toBeUpdatedInventories = Array.from(inventories);
+        let toBeUpdatedProducts = Array.from(products);
+        toBeUpdatedProducts = products.filter(e => e != productId);
+        toBeUpdatedInventories = inventories.filter(e => e.listing != productId);
+        setProducts(toBeUpdatedProducts);
+        setInventories(toBeUpdatedInventories);
+
         setOrder(prev => (prev.filter(e => e.listing != productId)))
-        setCurrentEditingOrder(prev => (prev.filter(e => e.listing != productId)))
+        setCurrentEditingOrder(prev => (prev.filter(e => e.listing != productId)));
+
+        updateLocalStorageData(locations, toBeUpdatedProducts, toBeUpdatedInventories);
     }
 
     const onChangeOrder = (event: ChangeEvent<HTMLInputElement>, product: string) => {
