@@ -330,85 +330,9 @@ const Home: NextPage = () => {
     }
 
     const getAlgorithm2Result = () => {
-        type AssignedItem = {
-            location: string | null,
-            listing: string,
-            variant: string,
-            quantity: number
-        }
-        const assignedItems: AssignedItem[] = [];
+        const assignedItems = getAlgorithm1Result();
 
-        for (const orderItem of currentEditingOrder) {
-            let isConditionSatishfied = false;
-            const sortedLocationsByPriority = [...locations].sort((a, b) => a.priority < b.priority ? 1 : -1);
-            const sortedListingInventoriesByLocationPriority = [...inventories].filter(inventory => inventory.listing == orderItem.listing && inventory.variant == orderItem.variant).sort((a, b) => {
-                const aPriority = sortedLocationsByPriority.find(loc => loc._id === a.location)?.priority ?? 0;
-                const bPriority = sortedLocationsByPriority.find(loc => loc._id === b.location)?.priority ?? 0;
-                return aPriority - bPriority;
-            })
-
-            // First condition - check default location inventory if it can fullfill the required quantity
-            const defaultLocation = locations.find(e => e.isDefault);
-            const inventoryOnDefaultLocation = inventories.find(e => e.location == defaultLocation?._id && e.listing == orderItem.listing && e.variant == orderItem.variant);
-            const defaultLocationAvailableQuantity = (inventoryOnDefaultLocation?.quantity ?? 0) - (inventoryOnDefaultLocation?.commited ?? 0);
-            if(defaultLocation && defaultLocationAvailableQuantity >= orderItem.quantity) {
-                assignedItems.push({ ...orderItem, location: defaultLocation?._id });
-                isConditionSatishfied = true;
-            }
-
-            if(isConditionSatishfied) continue;
-
-            // Second condition - check the higher priority location inventory if it can fullfill the required quantity
-            for (const inventory of sortedListingInventoriesByLocationPriority) {
-                const availableQuantity = inventory.quantity - inventory.commited;
-                if(availableQuantity >= orderItem.quantity) {
-                    assignedItems.push({ ...orderItem, location: inventory.location });
-                    isConditionSatishfied = true;
-
-                    // To check and update if the previous assigned items can be fulfilled by the current location
-                    for (const [index, assingedItem] of assignedItems.slice(0, -1).entries()) {
-                        const isMultipleItemsAssignedWithTheSameCurrentLocation = assignedItems.filter(e => e.location == assingedItem.location).length > 1;
-                        const isAssignedItemIsSplittedByQuantity = assignedItems.filter(e => e.listing == assingedItem.listing && e.variant == assingedItem.variant).length > 1;
-                        const assignedItemInventoryForCurrentLocation = inventories.find(e => e.location == inventory.location && e.listing == assingedItem.listing && e.variant == assingedItem.variant);
-                        const availableQuantity = (assignedItemInventoryForCurrentLocation?.quantity ?? 0) - (assignedItemInventoryForCurrentLocation?.commited ?? 0)
-                        if(!isMultipleItemsAssignedWithTheSameCurrentLocation && !isAssignedItemIsSplittedByQuantity && availableQuantity >= assingedItem.quantity) {
-                            assignedItems[index].location = inventory.location;
-                        }
-                    }
-
-                    break;
-                }
-            }
-
-            if(isConditionSatishfied) continue;
-
-            // Third condition - sort the location based on available quantity and priority. And then split quantities with different locations.
-            const sortedListingInventoriesByLocationQuantityAndPriority = [...inventories].filter(inventory => inventory.listing == orderItem.listing && inventory.variant == orderItem.variant).sort((a, b) => {
-                const aPriority = sortedLocationsByPriority.find(loc => loc._id === a.location)?.priority ?? 0;
-                const bPriority = sortedLocationsByPriority.find(loc => loc._id === b.location)?.priority ?? 0;
-                const aAvailableQuantity = a.quantity - a.commited;
-                const bAvailableQuantity = b.quantity - b.commited;
-                if(aAvailableQuantity == bAvailableQuantity) {
-                    return aPriority - bPriority;
-                }
-                return bAvailableQuantity - aAvailableQuantity;
-            });
-            let notFulfiledItemQuantity = orderItem.quantity;
-            for (const inventory of sortedListingInventoriesByLocationQuantityAndPriority) {
-                const availableQuantity = inventory.quantity - inventory.commited;
-                const assignableQuantity = availableQuantity > notFulfiledItemQuantity ? notFulfiledItemQuantity : availableQuantity;
-                if(notFulfiledItemQuantity < 1) break;
-                if(availableQuantity > 0 && notFulfiledItemQuantity > 0) {
-                    assignedItems.push({ ...orderItem, quantity: assignableQuantity, location: inventory.location });
-                    notFulfiledItemQuantity -= assignableQuantity;
-                }
-            }
-            if(notFulfiledItemQuantity > 0) {
-                assignedItems.push({ ...orderItem, quantity: notFulfiledItemQuantity, location: null })
-            }
-        
-        }
-        const assignedItemsGrupedByLocation = assignedItems.reduce((data, item) => {
+        let assignedItemsGrupedByLocation = assignedItems.reduce((data, item) => {
             const existItemWithSameLocationIndex = data.findIndex(e => e.location == item.location);
             if(existItemWithSameLocationIndex > -1) {
                 data[existItemWithSameLocationIndex].items.push({ listing: item.listing, variant: item.variant, quantity: item.quantity })
@@ -420,10 +344,13 @@ const Home: NextPage = () => {
 
         assignedItemsGrupedByLocation.sort((a, b) => a.items.length > b.items.length ? 1 : -1);
 
-        assignedItemsGrupedByLocation.forEach((groupedItem, index) => {
-            const restOfGroupedItemsFromCurrentItem = assignedItemsGrupedByLocation.slice(index+1);
+        assignedItemsGrupedByLocation.forEach(groupedItem => {
             groupedItem.items.forEach(item => {
                 const inventoriesForCurrentItem = inventories.filter(e => e.listing == item.listing && e.variant == item.variant);
+                let isAssigned = false;
+                const index = assignedItemsGrupedByLocation.findIndex(e => e.location == groupedItem.location);
+                
+                const restOfGroupedItemsFromCurrentItem = assignedItemsGrupedByLocation.slice(index+1);
                 restOfGroupedItemsFromCurrentItem.forEach(itemFromRestOfGroupedItems => {
                     const inventoryForCurrentItem = inventoriesForCurrentItem.find(e => e.location == itemFromRestOfGroupedItems.location);
                     const availableQuantity = (inventoryForCurrentItem?.quantity ?? 0) - (inventoryForCurrentItem?.commited ?? 0);
@@ -433,9 +360,30 @@ const Home: NextPage = () => {
                         if(!isAlreadyExistInCurrentGroupedItem) {
                             assignedItemsGrupedByLocation[currentItemIndexFromAssignedItemsGrupedByLocation].items.push(item);
                             groupedItem.items = groupedItem.items.filter(e => e.listing != item.listing && e.variant != item.variant);
+                            isAssigned = true;
+                        } 
+                    }
+                })
+
+                assignedItemsGrupedByLocation = assignedItemsGrupedByLocation.filter(e => e.items.length > 0);
+
+                if(isAssigned) return ;
+                const previousGroupedItemsFromCurrentItem = assignedItemsGrupedByLocation.slice(0, index).reverse();
+                previousGroupedItemsFromCurrentItem.forEach(itemFromRestOfGroupedItems => {
+                    const inventoryForCurrentItem = inventoriesForCurrentItem.find(e => e.location == itemFromRestOfGroupedItems.location);
+                    const availableQuantity = (inventoryForCurrentItem?.quantity ?? 0) - (inventoryForCurrentItem?.commited ?? 0);
+                    if(availableQuantity >= item.quantity) {
+                        const currentItemIndexFromAssignedItemsGrupedByLocation = assignedItemsGrupedByLocation.findIndex(e => e.location == itemFromRestOfGroupedItems.location);
+                        const isAlreadyExistInCurrentGroupedItem = itemFromRestOfGroupedItems.items.findIndex(e => e.listing == item.listing && e.variant == item.variant) > -1;
+                        if(!isAlreadyExistInCurrentGroupedItem) {
+                            assignedItemsGrupedByLocation[currentItemIndexFromAssignedItemsGrupedByLocation].items.push(item);
+                            groupedItem.items = groupedItem.items.filter(e => e.listing != item.listing && e.variant != item.variant);
+                            isAssigned = true;
                         }
                     }
                 })
+                
+                assignedItemsGrupedByLocation = assignedItemsGrupedByLocation.filter(e => e.items.length > 0);
             })
         })
 
@@ -455,16 +403,16 @@ const Home: NextPage = () => {
             quantity: number
         }
         const assignedItems: AssignedItem[] = [];
-        const locationsWithInventories: { location: string, items: { listing: string, variant: string, availableQuantity: number }[] }[] = [];
 
-        inventories.forEach(inventory => {
-            const existingIndex = locationsWithInventories.findIndex(e => e.location == inventory.location);
+        const locationsWithInventories = inventories.reduce((data, inventory) => {
+            const existingIndex = data.findIndex(e => e.location == inventory.location);
             if(existingIndex > -1) {
-                locationsWithInventories[existingIndex].items.push({ listing: inventory.listing, variant: inventory.variant, availableQuantity: inventory.quantity - inventory.commited });
+                data[existingIndex].items.push({ listing: inventory.listing, variant: inventory.variant, availableQuantity: inventory.quantity - inventory.commited });
             } else {
-                locationsWithInventories.push({ location: inventory.location, items: [{ listing: inventory.listing, variant: inventory.variant, availableQuantity: inventory.quantity - inventory.commited }] })
+                data.push({ location: inventory.location, items: [{ listing: inventory.listing, variant: inventory.variant, availableQuantity: inventory.quantity - inventory.commited }] })
             }
-        })
+            return data;
+        }, [] as { location: string, items: { listing: string, variant: string, availableQuantity: number }[] }[])
 
         const sortedLocationsByProbabilityAndPriority = locationsWithInventories.map(locationWithInventories => {
             let probability = 0;
@@ -496,15 +444,17 @@ const Home: NextPage = () => {
         for(const unAssignedItem of unAssignedItems) {
             let unAssignedQuantity = unAssignedItem.quantity;
             
-            sortedLocationsByProbabilityAndPriority.forEach(locationWithProbability => {
+            for(const locationWithProbability of sortedLocationsByProbabilityAndPriority) {
+                if(unAssignedQuantity < 1) break;
                 const currentLocationInventories = locationsWithInventories.find(e => e.location == locationWithProbability.location);
-                if(!currentLocationInventories) return;
+                if(!currentLocationInventories) continue;
                 const inventory = currentLocationInventories.items.find(e => e.listing == unAssignedItem.listing && e.variant == unAssignedItem.variant);
                 if(inventory && unAssignedQuantity > 0 && inventory.availableQuantity > 0) {
-                    assignedItems.push({ ...unAssignedItem, location: locationWithProbability.location, quantity: inventory.availableQuantity });
-                    unAssignedQuantity -= inventory.availableQuantity;
+                    const toBeAssignedQuantity = inventory.availableQuantity >= unAssignedQuantity ? unAssignedQuantity : inventory.availableQuantity;
+                    assignedItems.push({ ...unAssignedItem, location: locationWithProbability.location, quantity: toBeAssignedQuantity });
+                    unAssignedQuantity -= toBeAssignedQuantity;
                 }
-            })
+            }
 
             if(unAssignedQuantity > 0) {
                 assignedItems.push({ ...unAssignedItem, location: null, quantity: unAssignedQuantity });
