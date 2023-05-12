@@ -330,69 +330,54 @@ const Home: NextPage = () => {
     }
 
     const getAlgorithm2Result = () => {
-        const assignedItems = getAlgorithm1Result();
+        type AssignedItem = {
+            location: string | null,
+            listing: string,
+            variant: string,
+            quantity: number
+        }
+        let assignedItems = getAlgorithm1Result();
 
-        let assignedItemsGrupedByLocation = assignedItems.reduce((data, item) => {
-            const existItemWithSameLocationIndex = data.findIndex(e => e.location == item.location);
-            if(existItemWithSameLocationIndex > -1) {
-                data[existItemWithSameLocationIndex].items.push({ listing: item.listing, variant: item.variant, quantity: item.quantity })
-            } else {
-                data.push({ location: item.location, items: [ { listing: item.listing, variant: item.variant, quantity: item.quantity } ] });
+        assignedItems = Array.from(assignedItems).reduce((data, assignedItem, index, array) => {
+            let movedToOtherLocation = false;
+
+            const restOfItemsFormCurrentItem = array.slice(index+1);
+            for(const itemFromRestOfItems of restOfItemsFormCurrentItem) {
+                if(itemFromRestOfItems.location == assignedItem.location) continue ;
+                const isAlreadyExistWithSameLocation =  restOfItemsFormCurrentItem.findIndex(e => e.listing == assignedItem.listing && e.variant == assignedItem.variant && e.location == itemFromRestOfItems.location) > -1;
+                if(isAlreadyExistWithSameLocation) continue ;
+                const inventory = inventories.find(e => e.listing == assignedItem.listing && e.variant == assignedItem.variant && e.location == itemFromRestOfItems.location);
+                if(!inventory) continue ;
+                const availableQuantity = inventory.quantity - inventory.commited;
+                if(availableQuantity >= assignedItem.quantity) {
+                    data.push({ ...assignedItem, location: itemFromRestOfItems.location });
+                    movedToOtherLocation = true;
+                    break;
+                }
             }
-            return data;
-        }, [] as { location: string | null, items: { listing: string, variant: string, quantity: number }[] } []);
+            if(movedToOtherLocation) return data;
 
-        assignedItemsGrupedByLocation.sort((a, b) => a.items.length > b.items.length ? 1 : -1);
+            const previousItemsFromCurrentItem = Array.from(data).reverse();
+            for(const itemFromPreviousItems of previousItemsFromCurrentItem) {
+                if(itemFromPreviousItems.location == assignedItem.location) continue ;
+                const isAlreadyExistWithSameLocation =  previousItemsFromCurrentItem.findIndex(e => e.listing == assignedItem.listing && e.variant == assignedItem.variant && e.location == itemFromPreviousItems.location) > -1;
+                if(isAlreadyExistWithSameLocation) continue ;
+                const inventory = inventories.find(e => e.listing == assignedItem.listing && e.variant == assignedItem.variant && e.location == itemFromPreviousItems.location);
+                if(!inventory) continue ;
+                const availableQuantity = inventory.quantity - inventory.commited;
+                if(availableQuantity >= assignedItem.quantity) {
+                    data = data.filter(e => e.listing != assignedItem.listing && e.variant != assignedItem.variant && e.location != assignedItem.location);
+                    data.push({ ...assignedItem, location: itemFromPreviousItems.location });
+                    movedToOtherLocation = true;
+                    break;
+                }
+            }
 
-        assignedItemsGrupedByLocation.forEach(groupedItem => {
-            groupedItem.items.forEach(item => {
-                const inventoriesForCurrentItem = inventories.filter(e => e.listing == item.listing && e.variant == item.variant);
-                let isAssigned = false;
-                const index = assignedItemsGrupedByLocation.findIndex(e => e.location == groupedItem.location);
-                
-                const restOfGroupedItemsFromCurrentItem = assignedItemsGrupedByLocation.slice(index+1);
-                restOfGroupedItemsFromCurrentItem.forEach(itemFromRestOfGroupedItems => {
-                    const inventoryForCurrentItem = inventoriesForCurrentItem.find(e => e.location == itemFromRestOfGroupedItems.location);
-                    const availableQuantity = (inventoryForCurrentItem?.quantity ?? 0) - (inventoryForCurrentItem?.commited ?? 0);
-                    if(availableQuantity >= item.quantity) {
-                        const currentItemIndexFromAssignedItemsGrupedByLocation = assignedItemsGrupedByLocation.findIndex(e => e.location == itemFromRestOfGroupedItems.location);
-                        const isAlreadyExistInCurrentGroupedItem = itemFromRestOfGroupedItems.items.findIndex(e => e.listing == item.listing && e.variant == item.variant) > -1;
-                        if(!isAlreadyExistInCurrentGroupedItem) {
-                            assignedItemsGrupedByLocation[currentItemIndexFromAssignedItemsGrupedByLocation].items.push(item);
-                            groupedItem.items = groupedItem.items.filter(e => e.listing != item.listing && e.variant != item.variant);
-                            isAssigned = true;
-                        } 
-                    }
-                })
-
-                assignedItemsGrupedByLocation = assignedItemsGrupedByLocation.filter(e => e.items.length > 0);
-
-                if(isAssigned) return ;
-                const previousGroupedItemsFromCurrentItem = assignedItemsGrupedByLocation.slice(0, index).reverse();
-                previousGroupedItemsFromCurrentItem.forEach(itemFromRestOfGroupedItems => {
-                    const inventoryForCurrentItem = inventoriesForCurrentItem.find(e => e.location == itemFromRestOfGroupedItems.location);
-                    const availableQuantity = (inventoryForCurrentItem?.quantity ?? 0) - (inventoryForCurrentItem?.commited ?? 0);
-                    if(availableQuantity >= item.quantity) {
-                        const currentItemIndexFromAssignedItemsGrupedByLocation = assignedItemsGrupedByLocation.findIndex(e => e.location == itemFromRestOfGroupedItems.location);
-                        const isAlreadyExistInCurrentGroupedItem = itemFromRestOfGroupedItems.items.findIndex(e => e.listing == item.listing && e.variant == item.variant) > -1;
-                        if(!isAlreadyExistInCurrentGroupedItem) {
-                            assignedItemsGrupedByLocation[currentItemIndexFromAssignedItemsGrupedByLocation].items.push(item);
-                            groupedItem.items = groupedItem.items.filter(e => e.listing != item.listing && e.variant != item.variant);
-                            isAssigned = true;
-                        }
-                    }
-                })
-                
-                assignedItemsGrupedByLocation = assignedItemsGrupedByLocation.filter(e => e.items.length > 0);
-            })
-        })
-
-        const assignedItemss = assignedItemsGrupedByLocation.filter(e => e.items.length > 0).reduce((data, item) => {
-            data = [...data, ...item.items.map(e => ({ ...e, location: item.location }))];
+            if(!movedToOtherLocation) data.push(assignedItem)
             return data;
         }, [] as AssignedItem[])
 
-        return assignedItemss;
+        return assignedItems;
     }
 
     const getAlgorithm3Result = () => {
